@@ -41,7 +41,7 @@ impl<'a> BitField<'a> {
         }
     }
 
-    /// Get a u32 value from the given offset and size
+    /// Get a u32 big endian value from the given offset and size
     pub fn get_u32_be(&self, start: usize, end: usize) -> Result<u32> {
         let bit_offset = end - start;
         if bit_offset > 15 {
@@ -67,7 +67,35 @@ impl<'a> BitField<'a> {
         }
     }
 
-    /// Get a i16 value from the given offset and size
+    /// Get a u32 little endian value from the given offset and size
+    pub fn get_u32_le(&self, start: usize, end: usize) -> Result<u32> {
+        let bit_offset = end - start;
+        if bit_offset > 15 {
+            let mut offset: usize = 0;
+            let byte_0 = self.get_u8(offset, offset + 7)?;
+            offset += 8;
+            let byte_1 = self.get_u8(offset, offset + 7)?;
+            offset += 8;
+            let (byte_2, byte_3) = if offset + 7 >= end {
+                (self.get_u8(offset, end)?, 0u8)
+            } else {
+                (
+                    self.get_u8(offset, offset + 7)?,
+                    self.get_u8(offset + 8, offset + 15)?,
+                )
+            };
+            Ok(((byte_3 as u32) << 24)
+                | ((byte_2 as u32) << 16)
+                | ((byte_1 as u32) << 8)
+                | byte_0 as u32)
+        } else if bit_offset > 7 {
+            Ok(self.get_u16_be(start, end)? as u32)
+        } else {
+            Ok(self.get_u8(start, end)? as u32)
+        }
+    }
+
+    /// Get a i16 big endian value from the given offset and size
     pub fn get_i16_be(&self, start: usize, end: usize) -> Result<i16> {
         if end - start > 7 {
             match self.get_u16_be(start, end) {
@@ -83,14 +111,42 @@ impl<'a> BitField<'a> {
         }
     }
 
-    /// Get a u16 value from the given offset and size
+    /// Get a i16 big endian value from the given offset and size
+    pub fn get_i16_le(&self, start: usize, end: usize) -> Result<i16> {
+        if end - start > 7 {
+            match self.get_u16_le(start, end) {
+                Ok(byte) => Ok(BitField::twos_complement_u16(byte, 15 - (end - start))?),
+                Err(why) => Err(Error::with_all(
+                    why.kind(),
+                    &format!("get_signed_byte: failure from get_unsigned_u16"),
+                    Box::new(why),
+                )),
+            }
+        } else {
+            Ok(self.get_i8(start, end)? as i16)
+        }
+    }
+
+    /// Get a u16 big endian value from the given offset and size
     pub fn get_u16_be(&self, start: usize, end: usize) -> Result<u16> {
         let bit_offset = end - start;
         if bit_offset > 7 {
             let median = start + (bit_offset - 8);
-            let lower = self.get_u8(start, median)?;
-            let upper = self.get_u8(median + 1, end)?;
-            Ok(((lower as u16) << 8) | upper as u16)
+            let high = self.get_u8(start, median)?;
+            let low = self.get_u8(median + 1, end)?;
+            Ok(((high as u16) << 8) | low as u16)
+        } else {
+            Ok(self.get_u8(start, end)? as u16)
+        }
+    }
+
+    /// Get a u16 little endian value from the given offset and size
+    pub fn get_u16_le(&self, start: usize, end: usize) -> Result<u16> {
+        let bit_offset = end - start;
+        if bit_offset > 7 {
+            let low = self.get_u8(start, start + 7)?;
+            let high = self.get_u8(start + 8, end)?;
+            Ok(((high as u16) << 8) | low as u16)
         } else {
             Ok(self.get_u8(start, end)? as u16)
         }
