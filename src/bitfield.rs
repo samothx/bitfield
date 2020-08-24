@@ -1,4 +1,5 @@
 use crate::error::{Error, ErrorKind, Result, ToError};
+use log::debug;
 
 pub struct BitField<'a> {
     data: &'a [u8],
@@ -219,7 +220,9 @@ impl<'a> BitField<'a> {
     }
 
     fn twos_complement_u32(val: u32, sign_bit: usize) -> Result<i32> {
+        debug!("twos_complement_u32: {:x}, {}", val, sign_bit);
         let mask = 1 << (31 - sign_bit);
+        debug!("twos_complement_u32: mask {:x}", mask);
         if val as u64 & mask != 0 {
             Ok(-(((mask << 1) - val as u64) as i32))
         } else {
