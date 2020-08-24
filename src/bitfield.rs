@@ -43,8 +43,10 @@ impl<'a> BitField<'a> {
                 | ((byte_1 as u32) << 16)
                 | ((byte_2 as u32) << 8)
                 | byte_3 as u32)
-        } else {
+        } else if bit_offset > 7 {
             Ok(self.get_u16_be(start, end)? as u32)
+        } else {
+            Ok(self.get_u8(start, end)? as u32)
         }
     }
 
@@ -73,12 +75,42 @@ impl<'a> BitField<'a> {
             }
         }
     */
+
+    pub fn get_i16_be(&self, start: usize, end: usize) -> Result<i16> {
+        let bit_offset = end - start;
+        if bit_offset > 7 {
+            match self.get_u16_be(start, end) {
+                Ok(val) => {
+                    let sign_bit = 15 - bit_offset;
+                    match sign_bit {
+                        0 => Ok(val as i16),
+                        1 => Ok((val | 0b1000000000000000) as i16),
+                        _ => {
+                            let mut byte = val << (sign_bit - 1) as u8;
+                            for _ in 0..sign_bit - 1 {
+                                byte = (byte | 0b10000000) >> 1;
+                            }
+                            Ok((byte | 0b1000000000000000) as i16)
+                        }
+                    }
+                }
+                Err(why) => Err(Error::with_all(
+                    why.kind(),
+                    &format!("get_i16_be: failure from get_u16_be"),
+                    Box::new(why),
+                )),
+            }
+        } else {
+            Ok(self.get_i8(start, end)? as i16)
+        }
+    }
+
     /// Get a ui8 value from the given offset and size
     pub fn get_i8(&self, start: usize, end: usize) -> Result<i8> {
         match self.get_u8(start, end) {
             Ok(byte) => {
                 let sign_bit = 7 - (end - start);
-                if BitField::get_bit_from_byte(byte, sign_bit)? {
+                if BitField::get_bit_from_u8(byte, sign_bit)? {
                     Ok(match sign_bit {
                         0 => byte as i8,
                         1 => (byte | 0b10000000) as i8,
@@ -221,7 +253,61 @@ impl<'a> BitField<'a> {
         }
     }
 
-    fn get_bit_from_byte(byte: u8, bit: usize) -> Result<bool> {
+    fn twos_complement_u32(val: u32, sign_bit: usize) -> Result<i32> {
+        if BitField::get_bit_from_u32(val, sign_bit)? {
+            Ok((0x100 - val as u32) as i32)
+        } else {
+            Ok(val as i32)
+        }
+    }
+
+    fn twos_complement_u16(val: u16, sign_bit: usize) -> Result<i16> {
+        if BitField::get_bit_from_u16(val, sign_bit)? {
+            Ok((0x100 - val as u16) as i16)
+        } else {
+            Ok(val as i16)
+        }
+    }
+
+    fn twos_complement_u8(val: u8, sign_bit: usize) -> Result<i8> {
+        if BitField::get_bit_from_u8(val, sign_bit)? {
+            Ok((0x100 - val as u16) as i8)
+        } else {
+            Ok(val as i8)
+        }
+    }
+
+    fn get_bit_from_u32(byte: u32, bit: usize) -> Result<bool> {
+        if bit < 32 {
+            if bit > 0 {
+                Ok(((byte << bit as u32) >> 31) != 0)
+            } else {
+                Ok((byte >> 31) != 0)
+            }
+        } else {
+            Err(Error::with_context(
+                ErrorKind::OutOfRange,
+                &format!("get_bit_from_u32: bit index {} is out of range", bit),
+            ))
+        }
+    }
+
+    fn get_bit_from_u16(byte: u16, bit: usize) -> Result<bool> {
+        if bit < 16 {
+            if bit > 0 {
+                Ok(((byte << bit as u16) >> 15) != 0)
+            } else {
+                Ok((byte >> 15) != 0)
+            }
+        } else {
+            Err(Error::with_context(
+                ErrorKind::OutOfRange,
+                &format!("get_bit_from_u16: bit index {} is out of range", bit),
+            ))
+        }
+    }
+
+    fn get_bit_from_u8(byte: u8, bit: usize) -> Result<bool> {
         if bit < 8 {
             if bit > 0 {
                 Ok(((byte << bit as u8) >> 7) != 0)
@@ -231,7 +317,7 @@ impl<'a> BitField<'a> {
         } else {
             Err(Error::with_context(
                 ErrorKind::OutOfRange,
-                &format!("get_bit_from_byte: bit index {} is out of range", bit),
+                &format!("get_bit_from_u8: bit index {} is out of range", bit),
             ))
         }
     }
