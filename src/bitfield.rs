@@ -27,6 +27,7 @@ impl<'a> BitField<'a> {
 
     /// Get a i32 big endian value from the given offset and size
     pub fn get_i32_be(&self, start: usize, end: usize) -> Result<i32> {
+        debug!("get_i32_be: {},{}", start, end);
         if (end - start) > 15 {
             match self.get_u32_be(start, end) {
                 Ok(byte) => Ok(BitField::twos_complement_u32(byte, 31 - (end - start))?),
@@ -61,6 +62,7 @@ impl<'a> BitField<'a> {
 
     /// Get a u32 big endian value from the given offset and size
     pub fn get_u32_be(&self, start: usize, end: usize) -> Result<u32> {
+        debug!("get_u32_be: {},{}", start, end);
         let bit_offset = end - start;
         if bit_offset > 15 {
             let (byte_0, mut next) = if bit_offset > 23 {
@@ -87,9 +89,10 @@ impl<'a> BitField<'a> {
 
     /// Get a u32 little endian value from the given offset and size
     pub fn get_u32_le(&self, start: usize, end: usize) -> Result<u32> {
+        debug!("get_u32_le: {},{}", start, end);
         let bit_offset = end - start;
         if bit_offset > 15 {
-            let mut offset: usize = 0;
+            let mut offset: usize = start;
             let byte_0 = self.get_u8(offset, offset + 7)?;
             offset += 8;
             let byte_1 = self.get_u8(offset, offset + 7)?;
