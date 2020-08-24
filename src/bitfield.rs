@@ -27,13 +27,17 @@ impl<'a> BitField<'a> {
 
     /// Get a i32 value from the given offset and size
     pub fn get_i32_be(&self, start: usize, end: usize) -> Result<i32> {
-        match self.get_u32_be(start, end) {
-            Ok(byte) => Ok(BitField::twos_complement_u32(byte, 31 - (end - start))?),
-            Err(why) => Err(Error::with_all(
-                why.kind(),
-                &format!("get_signed_byte: failure from get_unsigned_u16"),
-                Box::new(why),
-            )),
+        if (end - start) > 15 {
+            match self.get_u32_be(start, end) {
+                Ok(byte) => Ok(BitField::twos_complement_u32(byte, 31 - (end - start))?),
+                Err(why) => Err(Error::with_all(
+                    why.kind(),
+                    &format!("get_signed_byte: failure from get_unsigned_u16"),
+                    Box::new(why),
+                )),
+            }
+        } else {
+            Ok(self.get_i16_be(start, end)? as i32)
         }
     }
 
@@ -65,13 +69,17 @@ impl<'a> BitField<'a> {
 
     /// Get a i16 value from the given offset and size
     pub fn get_i16_be(&self, start: usize, end: usize) -> Result<i16> {
-        match self.get_u16_be(start, end) {
-            Ok(byte) => Ok(BitField::twos_complement_u16(byte, 15 - (end - start))?),
-            Err(why) => Err(Error::with_all(
-                why.kind(),
-                &format!("get_signed_byte: failure from get_unsigned_u16"),
-                Box::new(why),
-            )),
+        if end - start > 7 {
+            match self.get_u16_be(start, end) {
+                Ok(byte) => Ok(BitField::twos_complement_u16(byte, 15 - (end - start))?),
+                Err(why) => Err(Error::with_all(
+                    why.kind(),
+                    &format!("get_signed_byte: failure from get_unsigned_u16"),
+                    Box::new(why),
+                )),
+            }
+        } else {
+            Ok(self.get_i8(start, end)? as i16)
         }
     }
 
