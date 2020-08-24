@@ -25,6 +25,57 @@ impl<'a> BitField<'a> {
             == 1)
     }
 
+    /// Get a u64 big endian value from the given offset and size
+    pub fn get_u64_be(&self, start: usize, end: usize) -> Result<u64> {
+        debug!("get_u64_be: {},{}", start, end);
+        let mut curr = start;
+        let mut value: u64 = 0;
+        let first = (end - start + 1) % 8;
+        if first > 0 {
+            value = self.get_u8(curr, curr + first - 1)? as u64;
+            curr += first;
+        }
+
+        while curr < end {
+            value = value << 8 | self.get_u8(curr, curr + 7)? as u64;
+            curr = curr + 8;
+        }
+        Ok(value)
+    }
+
+    /// Get a i64 little endian value from the given offset and size
+    pub fn get_i64_le(&self, start: usize, end: usize) -> Result<i64> {
+        debug!("get_i64_le: {},{}", start, end);
+        match self.get_u64_le(start, end) {
+            Ok(value) => Ok(BitField::twos_complement_u64(value, 31 - end + start)?),
+            Err(why) => Err(Error::with_all(
+                why.kind(),
+                &format!("get_i64_le: failure from get_u64_le"),
+                Box::new(why),
+            )),
+        }
+    }
+
+    /// Get a u64 little endian value from the given offset and size
+    pub fn get_u64_le(&self, start: usize, end: usize) -> Result<u64> {
+        debug!("get_u64_le: {},{}", start, end);
+        let mut curr = start;
+        let mut curr_end = curr + 7;
+        let mut value: u64 = 0;
+
+        while curr_end <= end {
+            value = value << 8 | self.get_u8(curr, curr_end)? as u64;
+            curr = curr_end + 1;
+            curr_end = curr + 7;
+        }
+
+        if curr <= end {
+            value = value << 8 | self.get_u8(curr, end)? as u64;
+        }
+
+        Ok(value)
+    }
+
     /// Get a i32 big endian value from the given offset and size
     pub fn get_i32_be(&self, start: usize, end: usize) -> Result<i32> {
         debug!("get_i32_be: {},{}", start, end);
@@ -63,57 +114,39 @@ impl<'a> BitField<'a> {
     /// Get a u32 big endian value from the given offset and size
     pub fn get_u32_be(&self, start: usize, end: usize) -> Result<u32> {
         debug!("get_u32_be: {},{}", start, end);
-        let bit_offset = end - start;
-        if bit_offset > 15 {
-            let (byte_0, mut next) = if bit_offset > 23 {
-                let median = start + (bit_offset - 24);
-                (self.get_u8(start, median)?, median + 1)
-            } else {
-                (0, start)
-            };
-            let byte_1 = self.get_u8(next, next + 7)?;
-            next += 8;
-            let byte_2 = self.get_u8(next, next + 7)?;
-            next += 8;
-            let byte_3 = self.get_u8(next, next + 7)?;
-            Ok(((byte_0 as u32) << 24)
-                | ((byte_1 as u32) << 16)
-                | ((byte_2 as u32) << 8)
-                | byte_3 as u32)
-        } else if bit_offset > 7 {
-            Ok(self.get_u16_be(start, end)? as u32)
-        } else {
-            Ok(self.get_u8(start, end)? as u32)
+        let mut curr = start;
+        let mut value: u32 = 0;
+        let first = (end - start + 1) % 8;
+        if first > 0 {
+            value = self.get_u8(curr, curr + first - 1)? as u32;
+            curr += first;
         }
+
+        while curr < end {
+            value = value << 8 | self.get_u8(curr, curr + 7)? as u32;
+            curr = curr + 8;
+        }
+        Ok(value)
     }
 
     /// Get a u32 little endian value from the given offset and size
     pub fn get_u32_le(&self, start: usize, end: usize) -> Result<u32> {
         debug!("get_u32_le: {},{}", start, end);
-        let bit_offset = end - start;
-        if bit_offset > 15 {
-            let mut offset: usize = start;
-            let byte_0 = self.get_u8(offset, offset + 7)?;
-            offset += 8;
-            let byte_1 = self.get_u8(offset, offset + 7)?;
-            offset += 8;
-            let (byte_2, byte_3) = if offset + 7 >= end {
-                (self.get_u8(offset, end)?, 0u8)
-            } else {
-                (
-                    self.get_u8(offset, offset + 7)?,
-                    self.get_u8(offset + 8, offset + 15)?,
-                )
-            };
-            Ok(((byte_3 as u32) << 24)
-                | ((byte_2 as u32) << 16)
-                | ((byte_1 as u32) << 8)
-                | byte_0 as u32)
-        } else if bit_offset > 7 {
-            Ok(self.get_u16_be(start, end)? as u32)
-        } else {
-            Ok(self.get_u8(start, end)? as u32)
+        let mut curr = start;
+        let mut curr_end = curr + 7;
+        let mut value: u32 = 0;
+
+        while curr_end <= end {
+            value = value << 8 | self.get_u8(curr, curr_end)? as u32;
+            curr = curr_end + 1;
+            curr_end = curr + 7;
         }
+
+        if curr <= end {
+            value = value << 8 | self.get_u8(curr, end)? as u32;
+        }
+
+        Ok(value)
     }
 
     /// Get a i16 big endian value from the given offset and size
@@ -304,32 +337,77 @@ impl<'a> BitField<'a> {
         }
     }
 
+    fn twos_complement_u64(val: u64, sign_bit: usize) -> Result<i64> {
+        debug!("twos_complement_u64: {:x}, {}", val, sign_bit);
+        if sign_bit > 63 {
+            Err(Error::with_context(
+                ErrorKind::InvParam,
+                &format!("Invalid sign_bit {} > 63", sign_bit),
+            ))
+        } else if sign_bit == 0 {
+            Ok(val as i64)
+        } else {
+            let mask = 1 << (63 - sign_bit);
+            if val & mask != 0 {
+                Ok(-(((mask << 1) - val) as i64))
+            } else {
+                Ok(val as i64)
+            }
+        }
+    }
+
     fn twos_complement_u32(val: u32, sign_bit: usize) -> Result<i32> {
         debug!("twos_complement_u32: {:x}, {}", val, sign_bit);
-        let mask = 1 << (31 - sign_bit);
-        debug!("twos_complement_u32: mask {:x}", mask);
-        if val as u64 & mask != 0 {
-            Ok(-(((mask << 1) - val as u64) as i32))
-        } else {
+        if sign_bit > 31 {
+            Err(Error::with_context(
+                ErrorKind::InvParam,
+                &format!("Invalid sign_bit {} > 31", sign_bit),
+            ))
+        } else if sign_bit == 0 {
             Ok(val as i32)
+        } else {
+            let mask = 1 << (31 - sign_bit);
+            if val & mask != 0 {
+                Ok(-(((mask << 1) - val) as i32))
+            } else {
+                Ok(val as i32)
+            }
         }
     }
 
     fn twos_complement_u16(val: u16, sign_bit: usize) -> Result<i16> {
-        let mask = 1 << (15 - sign_bit);
-        if val as u32 & mask != 0 {
-            Ok(-(((mask << 1) - val as u32) as i16))
-        } else {
+        if sign_bit > 15 {
+            Err(Error::with_context(
+                ErrorKind::InvParam,
+                &format!("Invalid sign_bit {} > 15", sign_bit),
+            ))
+        } else if sign_bit == 0 {
             Ok(val as i16)
+        } else {
+            let mask = 1 << (15 - sign_bit);
+            if val & mask != 0 {
+                Ok(-(((mask << 1) - val) as i16))
+            } else {
+                Ok(val as i16)
+            }
         }
     }
 
     fn twos_complement_u8(val: u8, sign_bit: usize) -> Result<i8> {
-        let mask = 1 << (7 - sign_bit);
-        if val as u16 & mask != 0 {
-            Ok(-(((mask << 1) - val as u16) as i8))
-        } else {
+        if sign_bit > 7 {
+            Err(Error::with_context(
+                ErrorKind::InvParam,
+                &format!("Invalid sign_bit {} > 7", sign_bit),
+            ))
+        } else if sign_bit == 0 {
             Ok(val as i8)
+        } else {
+            let mask = 1 << (7 - sign_bit);
+            if val & mask != 0 {
+                Ok(-(((mask << 1) - val) as i8))
+            } else {
+                Ok(val as i8)
+            }
         }
     }
 }
