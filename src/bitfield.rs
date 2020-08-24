@@ -219,14 +219,10 @@ impl<'a> BitField<'a> {
     }
 
     fn twos_complement_u32(val: u32, sign_bit: usize) -> Result<i32> {
-        println!("twos_complement_u32: {:x}, {}", val, sign_bit);
         let mask = 1 << (31 - sign_bit);
-        println!("twos_complement_u32: mask: {:x}", mask);
         if val as u64 & mask != 0 {
-            println!("twos_complement_u32: neg");
             Ok(-(((mask << 1) - val as u64) as i32))
         } else {
-            println!("twos_complement_u32: pos");
             Ok(val as i32)
         }
     }
