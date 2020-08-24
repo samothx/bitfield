@@ -24,6 +24,18 @@ impl<'a> BitField<'a> {
             == 1)
     }
 
+    /// Get a i32 value from the given offset and size
+    pub fn get_i32_be(&self, start: usize, end: usize) -> Result<i32> {
+        match self.get_u32_be(start, end) {
+            Ok(byte) => Ok(BitField::twos_complement_u32(byte, 31 - (end - start))?),
+            Err(why) => Err(Error::with_all(
+                why.kind(),
+                &format!("get_signed_byte: failure from get_unsigned_u16"),
+                Box::new(why),
+            )),
+        }
+    }
+
     /// Get a u32 value from the given offset and size
     pub fn get_u32_be(&self, start: usize, end: usize) -> Result<u32> {
         let bit_offset = end - start;
@@ -50,6 +62,18 @@ impl<'a> BitField<'a> {
         }
     }
 
+    /// Get a i16 value from the given offset and size
+    pub fn get_i16_be(&self, start: usize, end: usize) -> Result<i16> {
+        match self.get_u16_be(start, end) {
+            Ok(byte) => Ok(BitField::twos_complement_u16(byte, 15 - (end - start))?),
+            Err(why) => Err(Error::with_all(
+                why.kind(),
+                &format!("get_signed_byte: failure from get_unsigned_u16"),
+                Box::new(why),
+            )),
+        }
+    }
+
     /// Get a u16 value from the given offset and size
     pub fn get_u16_be(&self, start: usize, end: usize) -> Result<u16> {
         let bit_offset = end - start;
@@ -63,72 +87,13 @@ impl<'a> BitField<'a> {
         }
     }
 
-    /*
-        pub fn get_u16_le(&self, start: usize, end: usize) -> Result<u16> {
-            let bit_offset = end - start;
-            if bit_offset > 7 {
-                let lower = self.get_u8(start, start + 7)?;
-                let upper = self.get_u8(start + 8, end)?;
-                Ok(((upper as u16) << 8) | lower as u16)
-            } else {
-                Ok(self.get_u8(start, end)? as u16)
-            }
-        }
-    */
-
-    pub fn get_i16_be(&self, start: usize, end: usize) -> Result<i16> {
-        let bit_offset = end - start;
-        if bit_offset > 7 {
-            match self.get_u16_be(start, end) {
-                Ok(val) => {
-                    let sign_bit = 15 - bit_offset;
-                    match sign_bit {
-                        0 => Ok(val as i16),
-                        1 => Ok((val | 0b1000000000000000) as i16),
-                        _ => {
-                            let mut byte = val << (sign_bit - 1) as u8;
-                            for _ in 0..sign_bit - 1 {
-                                byte = (byte | 0b10000000) >> 1;
-                            }
-                            Ok((byte | 0b1000000000000000) as i16)
-                        }
-                    }
-                }
-                Err(why) => Err(Error::with_all(
-                    why.kind(),
-                    &format!("get_i16_be: failure from get_u16_be"),
-                    Box::new(why),
-                )),
-            }
-        } else {
-            Ok(self.get_i8(start, end)? as i16)
-        }
-    }
-
     /// Get a ui8 value from the given offset and size
     pub fn get_i8(&self, start: usize, end: usize) -> Result<i8> {
         match self.get_u8(start, end) {
-            Ok(byte) => {
-                let sign_bit = 7 - (end - start);
-                if BitField::get_bit_from_u8(byte, sign_bit)? {
-                    Ok(match sign_bit {
-                        0 => byte as i8,
-                        1 => (byte | 0b10000000) as i8,
-                        _ => {
-                            let mut byte = byte << (sign_bit - 1) as u8;
-                            for _ in 0..sign_bit - 1 {
-                                byte = (byte | 0b10000000) >> 1;
-                            }
-                            (byte | 0b10000000) as i8
-                        }
-                    })
-                } else {
-                    Ok(byte as i8)
-                }
-            }
+            Ok(byte) => Ok(BitField::twos_complement_u8(byte, 7 - (end - start))?),
             Err(why) => Err(Error::with_all(
                 why.kind(),
-                &format!("get_signed_byte: failure from get_unsigned_byte"),
+                &format!("get_signed_byte: failure from get_unsigned_u8"),
                 Box::new(why),
             )),
         }
@@ -254,71 +219,33 @@ impl<'a> BitField<'a> {
     }
 
     fn twos_complement_u32(val: u32, sign_bit: usize) -> Result<i32> {
-        if BitField::get_bit_from_u32(val, sign_bit)? {
-            Ok((0x100 - val as u32) as i32)
+        println!("twos_complement_u32: {:x}, {}", val, sign_bit);
+        let mask = 1 << (31 - sign_bit);
+        println!("twos_complement_u32: mask: {:x}", mask);
+        if val as u64 & mask != 0 {
+            println!("twos_complement_u32: neg");
+            Ok(-(((mask << 1) - val as u64) as i32))
         } else {
+            println!("twos_complement_u32: pos");
             Ok(val as i32)
         }
     }
 
     fn twos_complement_u16(val: u16, sign_bit: usize) -> Result<i16> {
-        if BitField::get_bit_from_u16(val, sign_bit)? {
-            Ok((0x100 - val as u16) as i16)
+        let mask = 1 << (15 - sign_bit);
+        if val as u32 & mask != 0 {
+            Ok(-(((mask << 1) - val as u32) as i16))
         } else {
             Ok(val as i16)
         }
     }
 
     fn twos_complement_u8(val: u8, sign_bit: usize) -> Result<i8> {
-        if BitField::get_bit_from_u8(val, sign_bit)? {
-            Ok((0x100 - val as u16) as i8)
+        let mask = 1 << (7 - sign_bit);
+        if val as u16 & mask != 0 {
+            Ok(-(((mask << 1) - val as u16) as i8))
         } else {
             Ok(val as i8)
-        }
-    }
-
-    fn get_bit_from_u32(byte: u32, bit: usize) -> Result<bool> {
-        if bit < 32 {
-            if bit > 0 {
-                Ok(((byte << bit as u32) >> 31) != 0)
-            } else {
-                Ok((byte >> 31) != 0)
-            }
-        } else {
-            Err(Error::with_context(
-                ErrorKind::OutOfRange,
-                &format!("get_bit_from_u32: bit index {} is out of range", bit),
-            ))
-        }
-    }
-
-    fn get_bit_from_u16(byte: u16, bit: usize) -> Result<bool> {
-        if bit < 16 {
-            if bit > 0 {
-                Ok(((byte << bit as u16) >> 15) != 0)
-            } else {
-                Ok((byte >> 15) != 0)
-            }
-        } else {
-            Err(Error::with_context(
-                ErrorKind::OutOfRange,
-                &format!("get_bit_from_u16: bit index {} is out of range", bit),
-            ))
-        }
-    }
-
-    fn get_bit_from_u8(byte: u8, bit: usize) -> Result<bool> {
-        if bit < 8 {
-            if bit > 0 {
-                Ok(((byte << bit as u8) >> 7) != 0)
-            } else {
-                Ok((byte >> 7) != 0)
-            }
-        } else {
-            Err(Error::with_context(
-                ErrorKind::OutOfRange,
-                &format!("get_bit_from_u8: bit index {} is out of range", bit),
-            ))
         }
     }
 }
@@ -424,6 +351,35 @@ mod tests {
         assert_eq!(bitfield.get_i8(14, 21).unwrap(), (BYTE2 as i8));
         assert_eq!(bitfield.get_i8(14, 20).unwrap(), (BYTE3 as i8));
         assert_eq!(bitfield.get_i8(14, 19).unwrap(), (BYTE4 as i8));
+    }
+
+    #[test]
+    fn test_get_i32() {
+        const BYTES: [u8; 6] = [
+            0b00000000, 0b11111111, 0b11111111, 0b11111111, 0b11111111, 0b10101010,
+        ];
+        let bitfield = BitField::new(&BYTES);
+        assert_eq!(bitfield.get_i32_be(8, 39).unwrap(), -1);
+        assert_eq!(bitfield.get_i32_be(9, 39).unwrap(), -1);
+        assert_eq!(bitfield.get_i32_be(10, 39).unwrap(), -1);
+        assert_eq!(bitfield.get_i32_be(11, 39).unwrap(), -1);
+        assert_eq!(bitfield.get_i32_be(12, 39).unwrap(), -1);
+        assert_eq!(bitfield.get_i32_be(13, 39).unwrap(), -1);
+        assert_eq!(bitfield.get_i32_be(7, 38).unwrap(), 0x7FFFFFFF as i32);
+        assert_eq!(bitfield.get_i32_be(16, 47).unwrap(), -86);
+    }
+
+    #[test]
+    fn test_get_i16() {
+        const BYTES: [u8; 4] = [0b00000000, 0b11111111, 0b11111111, 0b10101010];
+        let bitfield = BitField::new(&BYTES);
+        assert_eq!(bitfield.get_i16_be(8, 23).unwrap(), -1);
+        assert_eq!(bitfield.get_i16_be(9, 23).unwrap(), -1);
+        assert_eq!(bitfield.get_i16_be(10, 23).unwrap(), -1);
+        assert_eq!(bitfield.get_i16_be(11, 23).unwrap(), -1);
+        assert_eq!(bitfield.get_i16_be(12, 23).unwrap(), -1);
+        assert_eq!(bitfield.get_i16_be(13, 23).unwrap(), -1);
+        assert_eq!(bitfield.get_i16_be(7, 22).unwrap(), 0x7FFF as i16);
     }
 
     #[test]
