@@ -47,7 +47,7 @@ impl<'a> BitField<'a> {
     pub fn get_i64_le(&self, start: usize, end: usize) -> Result<i64> {
         debug!("get_i64_le: {},{}", start, end);
         match self.get_u64_le(start, end) {
-            Ok(value) => Ok(BitField::twos_complement_u64(value, 31 - end + start)?),
+            Ok(value) => Ok(BitField::twos_complement_u64(value, 63 - (end - start))?),
             Err(why) => Err(Error::with_all(
                 why.kind(),
                 &format!("get_i64_le: failure from get_u64_le"),
