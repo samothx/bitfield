@@ -25,7 +25,7 @@ impl<'a> BitField<'a> {
             == 1)
     }
 
-    /// Get a i32 value from the given offset and size
+    /// Get a i32 big endian value from the given offset and size
     pub fn get_i32_be(&self, start: usize, end: usize) -> Result<i32> {
         if (end - start) > 15 {
             match self.get_u32_be(start, end) {
@@ -33,6 +33,22 @@ impl<'a> BitField<'a> {
                 Err(why) => Err(Error::with_all(
                     why.kind(),
                     &format!("get_signed_byte: failure from get_unsigned_u16"),
+                    Box::new(why),
+                )),
+            }
+        } else {
+            Ok(self.get_i16_be(start, end)? as i32)
+        }
+    }
+
+    /// Get a i32 little endian value from the given offset and size
+    pub fn get_i32_le(&self, start: usize, end: usize) -> Result<i32> {
+        if (end - start) > 15 {
+            match self.get_u32_le(start, end) {
+                Ok(byte) => Ok(BitField::twos_complement_u32(byte, 31 - (end - start))?),
+                Err(why) => Err(Error::with_all(
+                    why.kind(),
+                    &format!("get_signed_byte: failure from get_unsigned_u32_le"),
                     Box::new(why),
                 )),
             }
