@@ -25,6 +25,19 @@ impl<'a> BitField<'a> {
             == 1)
     }
 
+    /// Get a i64 big endian value from the given offset and size
+    pub fn get_i64_be(&self, start: usize, end: usize) -> Result<i64> {
+        debug!("get_i64_be: {},{}", start, end);
+        match self.get_u64_be(start, end) {
+            Ok(value) => Ok(BitField::twos_complement_u64(value, 63 - (end - start))?),
+            Err(why) => Err(Error::with_all(
+                why.kind(),
+                &format!("get_i64_be: failure from get_u64_le"),
+                Box::new(why),
+            )),
+        }
+    }
+
     /// Get a u64 big endian value from the given offset and size
     pub fn get_u64_be(&self, start: usize, end: usize) -> Result<u64> {
         debug!("get_u64_be: {},{}", start, end);
@@ -46,6 +59,7 @@ impl<'a> BitField<'a> {
     /// Get a i64 little endian value from the given offset and size
     pub fn get_i64_le(&self, start: usize, end: usize) -> Result<i64> {
         debug!("get_i64_le: {},{}", start, end);
+        println!("get_i64_le: {},{}", start, end);
         match self.get_u64_le(start, end) {
             Ok(value) => Ok(BitField::twos_complement_u64(value, 63 - (end - start))?),
             Err(why) => Err(Error::with_all(
@@ -59,18 +73,33 @@ impl<'a> BitField<'a> {
     /// Get a u64 little endian value from the given offset and size
     pub fn get_u64_le(&self, start: usize, end: usize) -> Result<u64> {
         debug!("get_u64_le: {},{}", start, end);
-        let mut curr = start;
-        let mut curr_end = curr + 7;
+        println!("get_u64_le: {},{}", start, end);
+        let mut curr_end = end as i32;
         let mut value: u64 = 0;
+        let first = (end - start + 1) % 8;
+        if first > 0 {
+            value = self.get_u8((curr_end - first as i32 + 1) as usize, curr_end as usize)? as u64;
+            println!(
+                "get_u64_le: first {}-{}: {:02x}",
+                curr_end - first as i32 + 1,
+                curr_end,
+                value
+            );
 
-        while curr_end <= end {
-            value = value << 8 | self.get_u8(curr, curr_end)? as u64;
-            curr = curr_end + 1;
-            curr_end = curr + 7;
+            curr_end = curr_end - first as i32;
         }
-
-        if curr <= end {
-            value = value << 8 | self.get_u8(curr, end)? as u64;
+        loop {
+            println!(
+                "get_u64_le: {}-{}: {:02x}",
+                curr_end - 7,
+                curr_end,
+                self.get_u8((curr_end - 7) as usize, curr_end as usize)?
+            );
+            value = value << 8 | self.get_u8((curr_end - 7) as usize, curr_end as usize)? as u64;
+            curr_end -= 8;
+            if curr_end < start as i32 {
+                break;
+            }
         }
 
         Ok(value)
@@ -79,9 +108,11 @@ impl<'a> BitField<'a> {
     /// Get a i32 big endian value from the given offset and size
     pub fn get_i32_be(&self, start: usize, end: usize) -> Result<i32> {
         debug!("get_i32_be: {},{}", start, end);
-        if (end - start) > 15 {
+        println!("get_i32_be: {},{}", start, end);
+        let offset = end - start;
+        if offset > 15 {
             match self.get_u32_be(start, end) {
-                Ok(byte) => Ok(BitField::twos_complement_u32(byte, 31 - (end - start))?),
+                Ok(byte) => Ok(BitField::twos_complement_u32(byte, 31 - offset)?),
                 Err(why) => Err(Error::with_all(
                     why.kind(),
                     &format!("get_signed_byte: failure from get_unsigned_u16"),
@@ -338,7 +369,8 @@ impl<'a> BitField<'a> {
     }
 
     fn twos_complement_u64(val: u64, sign_bit: usize) -> Result<i64> {
-        debug!("twos_complement_u64: {:x}, {}", val, sign_bit);
+        debug!("twos_complement_u64: {:016x}, {}", val, sign_bit);
+        println!("twos_complement_u64: {:016x}, {}", val, sign_bit);
         if sign_bit > 63 {
             Err(Error::with_context(
                 ErrorKind::InvParam,
@@ -529,6 +561,66 @@ mod tests {
         assert_eq!(bitfield.get_i32_be(13, 39).unwrap(), -1);
         assert_eq!(bitfield.get_i32_be(7, 38).unwrap(), 0x7FFFFFFF as i32);
         assert_eq!(bitfield.get_i32_be(16, 47).unwrap(), -86);
+    }
+
+    #[test]
+    fn test_get_u64_le() {
+        const BYTES: [u8; 9] = [
+            0b10101010, 0b00000000, 0b11111111, 0b10101010, 0b10101010, 0b10101010, 0b10101010,
+            0b10101010, 0b10101010,
+        ];
+        let bitfield = BitField::new(&BYTES);
+        assert_eq!(bitfield.get_u64_le(0, 63).unwrap(), 0xAAAAAAAAAAFF00AA);
+        assert_eq!(bitfield.get_u64_le(1, 63).unwrap(), 0x55555555557F802A);
+        /*
+        assert_eq!(bitfield.get_u64_le(1, 64).unwrap(), 0x5401FF5555555555);
+        assert_eq!(bitfield.get_u64_le(1, 63).unwrap(), 0x5555555555555555);
+        assert_eq!(bitfield.get_u64_le(2, 63).unwrap(), 0x2AAAAAAAAAAAAAAA);
+        assert_eq!(bitfield.get_i64_le(9, 71).unwrap(), -1);
+        assert_eq!(bitfield.get_i64_le(10, 71).unwrap(), -1);
+        assert_eq!(bitfield.get_i64_le(11, 71).unwrap(), -1);
+        assert_eq!(bitfield.get_i64_le(12, 71).unwrap(), -1);
+        assert_eq!(bitfield.get_i64_le(13, 71).unwrap(), -1);
+        assert_eq!(bitfield.get_i64_le(7, 70).unwrap(), -2);
+        assert_eq!(bitfield.get_i64_le(0, 63).unwrap(), -86);
+
+         */
+    }
+
+    #[test]
+    fn test_get_i64_le() {
+        const BYTES: [u8; 9] = [
+            0b10101010, 0b11111111, 0b11111111, 0b11111111, 0b11111111, 0b11111111, 0b11111111,
+            0b11111111, 0b11111111,
+        ];
+        let bitfield = BitField::new(&BYTES);
+        assert_eq!(bitfield.get_i64_le(8, 71).unwrap(), -1);
+        assert_eq!(bitfield.get_i64_le(9, 71).unwrap(), -1);
+        assert_eq!(bitfield.get_i64_le(10, 71).unwrap(), -1);
+        assert_eq!(bitfield.get_i64_le(11, 71).unwrap(), -1);
+        assert_eq!(bitfield.get_i64_le(12, 71).unwrap(), -1);
+        assert_eq!(bitfield.get_i64_le(13, 71).unwrap(), -1);
+        assert_eq!(bitfield.get_i64_le(7, 70).unwrap(), -2);
+        assert_eq!(bitfield.get_i64_le(0, 63).unwrap(), -86);
+    }
+    #[test]
+    fn test_get_i64_be() {
+        const BYTES: [u8; 10] = [
+            0b00000000, 0b11111111, 0b11111111, 0b11111111, 0b11111111, 0b11111111, 0b11111111,
+            0b11111111, 0b11111111, 0b10101010,
+        ];
+        let bitfield = BitField::new(&BYTES);
+        assert_eq!(bitfield.get_i64_be(8, 71).unwrap(), -1);
+        assert_eq!(bitfield.get_i64_be(9, 71).unwrap(), -1);
+        assert_eq!(bitfield.get_i64_be(10, 71).unwrap(), -1);
+        assert_eq!(bitfield.get_i64_be(11, 71).unwrap(), -1);
+        assert_eq!(bitfield.get_i64_be(12, 71).unwrap(), -1);
+        assert_eq!(bitfield.get_i64_be(13, 71).unwrap(), -1);
+        assert_eq!(
+            bitfield.get_i64_be(7, 70).unwrap(),
+            0x7FFFFFFFFFFFFFFF as i64
+        );
+        assert_eq!(bitfield.get_i64_be(16, 79).unwrap(), -86);
     }
 
     #[test]
